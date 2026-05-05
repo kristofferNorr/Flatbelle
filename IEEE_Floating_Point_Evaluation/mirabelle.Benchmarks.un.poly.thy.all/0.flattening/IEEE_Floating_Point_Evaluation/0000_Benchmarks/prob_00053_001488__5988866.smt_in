@@ -1,0 +1,11 @@
+; As of now it is a bit unclear how exactly a correct SMT-LIB 3 model is formatted.
+; Hence, this will be corrected once the standard is released.
+; No options
+(import (FloatingPoint, Reals, Ints))
+(open (FloatingPoint, Reals, Ints))
+(declare-const x_f$ Int)
+(declare-const x_e$ Int)
+(declare-const x$ (FloatingPoint x_e$ (+ x_f$ 1)))
+(assert (! (not (not (and (fp.isNaN x$) (fp.isInfinite x$)))) :named conjecture0))
+(check-sat)
+(get-proof)

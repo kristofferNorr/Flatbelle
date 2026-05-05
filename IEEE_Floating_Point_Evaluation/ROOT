@@ -1,0 +1,5 @@
+chapter AFP
+
+session IEEE_Floating_Point_Evaluation = "IEEE_Floating_Point" +
+  theories
+    Benchmarks

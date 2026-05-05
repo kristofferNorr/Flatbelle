@@ -1,0 +1,12 @@
+; As of now it is a bit unclear how exactly a correct SMT-LIB 3 model is formatted.
+; Hence, this will be corrected once the standard is released.
+; No options
+(import (FloatingPoint, Reals, Ints))
+(open (FloatingPoint, Reals, Ints))
+(declare-const mode$ RoundingMode)
+(declare-const y$ (FloatingPoint 8 24))
+(declare-const x$ (FloatingPoint 8 24))
+(assert (! (not (fp.isNaN (fp.sub mode$ x$ y$))) :named conjecture0))
+(assert (! (fp.isNaN y$) :named hypothesis1))
+(check-sat)
+(get-proof)

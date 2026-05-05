@@ -1,0 +1,15 @@
+; As of now it is a bit unclear how exactly a correct SMT-LIB 3 model is formatted.
+; Hence, this will be corrected once the standard is released.
+; No options
+(import (FloatingPoint, Reals, Ints))
+(open (FloatingPoint, Reals, Ints))
+(declare-const mode$ RoundingMode)
+(declare-const x_f$ Int)
+(declare-const x_e$ Int)
+(declare-const y$ (FloatingPoint x_e$ (+ x_f$ 1)))
+(declare-const x$ (FloatingPoint x_e$ (+ x_f$ 1)))
+(declare-const frem$ (-> RoundingMode (FloatingPoint x_e$ (+ x_f$ 1)) (FloatingPoint x_e$ (+ x_f$ 1)) (FloatingPoint x_e$ (+ x_f$ 1))))
+(assert (! (not (fp.isNaN (frem$ mode$ x$ y$))) :named conjecture0))
+(assert (! (fp.isInfinite x$) :named hypothesis1))
+(check-sat)
+(get-proof)

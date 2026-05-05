@@ -1,0 +1,9 @@
+; As of now it is a bit unclear how exactly a correct SMT-LIB 3 model is formatted.
+; Hence, this will be corrected once the standard is released.
+; No options
+(import (FloatingPoint, Reals, Ints))
+(open (FloatingPoint, Reals, Ints))
+(declare-const x$ Real)
+(assert (! (not (= (to_fp RTP (- x$)) (fp.neg (to_fp RTN x$)))) :named conjecture0))
+(check-sat)
+(get-proof)

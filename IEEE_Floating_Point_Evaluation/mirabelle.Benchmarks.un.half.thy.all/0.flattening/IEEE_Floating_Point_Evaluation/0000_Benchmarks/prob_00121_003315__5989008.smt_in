@@ -1,0 +1,11 @@
+; As of now it is a bit unclear how exactly a correct SMT-LIB 3 model is formatted.
+; Hence, this will be corrected once the standard is released.
+; No options
+(import (FloatingPoint, Reals, Ints))
+(open (FloatingPoint, Reals, Ints))
+(declare-const x$ (FloatingPoint 5 11))
+(declare-const is_finite$ (-> (FloatingPoint 5 11) Bool))
+(assert (! (not (not (fp.isInfinite x$))) :named conjecture0))
+(assert (! (is_finite$ x$) :named hypothesis1))
+(check-sat)
+(get-proof)

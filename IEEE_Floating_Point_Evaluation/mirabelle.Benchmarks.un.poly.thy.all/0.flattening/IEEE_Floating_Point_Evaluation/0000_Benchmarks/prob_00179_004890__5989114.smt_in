@@ -1,0 +1,19 @@
+; As of now it is a bit unclear how exactly a correct SMT-LIB 3 model is formatted.
+; Hence, this will be corrected once the standard is released.
+; No options
+(import (FloatingPoint, Reals, Ints))
+(open (FloatingPoint, Reals, Ints))
+(declare-const x_f$ Int)
+(declare-const x_e$ Int)
+(declare-const z$ (FloatingPoint x_e$ (+ x_f$ 1)))
+(declare-const y$ (FloatingPoint x_e$ (+ x_f$ 1)))
+(declare-const x$ (FloatingPoint x_e$ (+ x_f$ 1)))
+(declare-const is_finite$ (-> (FloatingPoint x_e$ (+ x_f$ 1)) Bool))
+(assert (! (not (fp.lt x$ z$)) :named conjecture0))
+(assert (! (is_finite$ x$) :named hypothesis1))
+(assert (! (is_finite$ y$) :named hypothesis2))
+(assert (! (is_finite$ z$) :named hypothesis3))
+(assert (! (fp.leq x$ y$) :named hypothesis4))
+(assert (! (fp.lt y$ z$) :named hypothesis5))
+(check-sat)
+(get-proof)

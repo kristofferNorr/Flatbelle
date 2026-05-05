@@ -1,0 +1,552 @@
+(define-module FloatingPoint (
+  (set-info :smt-lib-version 3.0)
+  (set-info :smt-lib-release "2026-XX-XX")
+  (set-info :written-by "Kristoffer Norrman and Tjark Weber")
+  (set-info :date "2026-05-04")
+  (set-info :last-updated "2026-05-04")
+
+ (set-info :notes
+   "This is a theory of floating point numbers largely based on the IEEE standard
+    754-2019 for floating-point arithmetic (http://grouper.ieee.org/groups/754/)
+    but restricted to the binary case only. It provides operations similar to
+    those found in the SMT-LIB 2 floating-point theory
+    (https://smt-lib.org/theories-FloatingPoint.shtml).
+   ")
+
+  (import (Core))
+  (open (Core))
+
+  ; -----------------
+  ; External symbols
+  ;------------------
+
+  (declare-type Int () :extern Ints::Int)
+  (declare-const + (-> Int Int Int) :extern Ints::+)
+  (declare-const > (-> Int Int Bool) :extern Ints::>)
+
+  (declare-type Real () :extern Reals::Real)
+  
+  (declare-type BitVec ((! Int :var m :restrict (> m 0))) :extern BitVectors::BitVec)
+
+
+  (set-info :notes
+   "The constant symbols #b0 and #b1 of sort (BitVec 1) are defined as follows
+
+    [[#b0]] := λx:[0, 1). 0
+    [[#b1]] := λx:[0, 1). 1
+
+    More generally, given a string #b followed by a sequence of 0's and 1's,
+    if n is the numeral represented in base 2 by the sequence of 0's and 1's
+    and m is the length of the sequence, then the term represents
+    nat2bv[m](n).
+   ")
+
+  ;---------------
+  ; Builtin types
+  ;---------------
+
+  (declare-type FloatingPoint
+                ((! Int :var eb :restrict (> eb 1))
+                 (! Int :var sb :restrict (> sb 1)))
+
+	:builtin
+	"(FloatingPoint eb sb) denotes the set of all binary floating-point
+	 numbers with eb bits for the exponent and sb bits for the signficand,
+	 as defined by IEEE 754-2019.
+
+	 Technically, (FloatingPoint eb sb) is the union of the set 
+   {not_a_number} with four sets N, S, Z, I of bit-vector triples
+   (corresponding to normal numbers, subnormal numbers, zeros and
+   infinities) of the form (s, e, m) where s, e, and m correspond
+   respectively to the sign, the exponent and the significand. 
+	")
+
+  (declare-const +zero
+    (-> (! Int :var eb :implicit)
+        (! Int :var sb :implicit)
+        (FloatingPoint eb sb))
+  :builtin
+  "Special value: positive zero.
+  ")
+
+  (declare-const -zero
+    (-> (! Int :var eb :implicit)
+        (! Int :var sb :implicit)
+        (FloatingPoint eb sb))
+  :builtin
+  "Special value: negative zero.
+  ")
+
+  (declare-const +oo
+    (-> (! Int :var eb :implicit)
+        (! Int :var sb :implicit)
+        (FloatingPoint eb sb))
+  :builtin
+  "Special value: positive infinity.
+  ")
+
+  (declare-const -oo
+    (-> (! Int :var eb :implicit)
+        (! Int :var sb :implicit)
+        (FloatingPoint eb sb))
+  :builtin
+  "Special value: negative infinity.
+  ")
+
+  (declare-const NaN
+    (-> (! Int :var eb :implicit)
+        (! Int :var sb :implicit)
+        (FloatingPoint eb sb))
+  :builtin
+  "Special value: NaN.
+  ")
+
+
+   (set-info :notes
+    "
+
+	  o The +zero and -zero symbols are abbreviations for the corresponding
+	    fp literals.
+  	    E.g.,    (+zero 2 4) abbreviates (fp #b0 #b00 #b000), and
+	   	           (-zero 3 2) abbreviates (fp #b1 #b000 #b0)
+
+	  o Semantically, for each eb and sb, there is exactly one +infinity
+	    value and exactly one -infinity value in the type denoted by
+	    (FloatingPoint eb sb), in agreement with the IEEE 754-2019 standard.
+	    However, +/-infinity can have two representations in this theory.
+	    E.g., +infinity for type (FloatingPoint 2 3) is represented equivalently
+	    by (+oo 2 3) and (fp #b0 #b11 #b00).
+
+	  o For each eb and sb, there is exactly one NaN in the type denoted by 
+  	  (FloatingPoint eb sb), in agreeement with Level 2 of IEEE 754-2019
+  	  (floating-point number data). There is no distinction in this theory between 
+      a ``quiet'' and a ``signaling'' NaN.
+ 	    NaN has several representations, e.g. (NaN eb sb), and any term of 
+ 	    the form (fp t #b1..1 s) where s is a binary containing at least one 1,
+ 	    and t is either #b0 or #b1.
+	"
+   )
+
+  (declare-datatype RoundingMode
+    ((roundNearestTiesToEven)
+	   (roundNearestTiesToAway)
+	   (roundTowardPositive)
+	   (roundTowardNegative)
+	   (roundTowardZero))
+	:builtin
+	"Constants for rounding modes.
+	")
+
+  (set-info :notes
+   "RoundingMode is the set of the 5 rounding modes defined by IEEE 754-2019, each with
+    an abbreviated version. 
+   ")
+
+  (define-const RNE
+    RoundingMode
+	roundNearestTiesToEven)
+
+  (define-const RNA
+    RoundingMode
+	roundNearestTiesToAway)
+
+  (define-const RTP
+    RoundingMode
+	roundTowardPositive)
+
+  (define-const RTN
+    RoundingMode
+	roundTowardNegative)
+
+  (define-const RTZ
+    RoundingMode
+	roundTowardZero)
+
+  ;--------------------
+  ; Value constructors
+  ;--------------------
+
+  ; 
+  (declare-const fp
+    (-> (! Int :var eb :implicit)
+		    (! Int :var i :implicit)
+		    (BitVec 1)
+		    (BitVec eb)
+		    (BitVec i)
+		    (FloatingPoint eb (+ i 1)))
+	:builtin
+	"Floating-point literals as bit string triples, with the leading bit for the significand
+	 not represented (hidden bit).
+	")
+
+  ;-------------------------------------
+  ; Bridging functions from other types
+  ;-------------------------------------
+
+  ; from single bitstring representatio in IEEE 754-2019 interchange format,
+  ; with m = eb + sb
+  (declare-const to_fp
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (BitVec (+ eb sb))
+		    (FloatingPoint s eb sb))
+	:builtin
+	"Standard (BitVec (+ eb sb)) to (FloatingPoint eb sb) conversion, mapping a bit-vector of size 
+	 (+ eb sb) to a floating-point number.
+	")
+
+  ; from another floating point sort
+  (declare-const to_fp
+    (-> (! Int :var mb :implicit)
+		    (! Int :var nb :implicit)
+		    (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    RoundingMode
+		    (FloatingPoint mb nb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"(FloatingPoint mb nb) to (FloatingPoint eb sb) conversion, mapping a floating-point
+	 number to another floating-point number in the target format, rounded according to
+	 the given rounding mode.
+	")
+
+  ; from real number
+  (declare-const to_fp
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    RoundingMode
+		    Real
+		    (FloatingPoint eb sb))
+	:builtin
+	"Real to (FloatingPoint eb sb) conversion, mapping a real number to the closest
+	 floating-point number, rounded according to the given rounding mode.
+	")
+
+  ; from signed machine integer, represented as a 2's complement bit vector
+  (declare-const to_fp
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    RoundingMode
+		    (BitVec (+ eb sb))
+		    (FloatingPoint eb sb))
+	:builtin
+	"(BitVec (+ eb sb)) to (FloatingPoint eb sb) conversion, mapping an 2's complement bit-vector
+	 to the closest floating-point number of same size, rounded according to the given
+	 rounding mode. 
+	")
+
+  ; from unsigned machine integer, represented as bit vector
+  (declare-const to_fp_unsigned
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    RoundingMode
+		    (BitVec (+ eb sb))
+		    (FloatingPoint eb sb))
+	:builtin
+	"(BitVec (+ eb sb)) to (FloatingPoint eb sb) conversion, mapping an unsigned bit-vector 
+	 to the closest floating-point number of same size, rounded according to the given
+	 rounding mode.
+	")
+
+  ;-----------------------------------
+  ; Bridging functions to other types
+  ;-----------------------------------
+
+   ; to unsigned machine integer, represented as a bit vector
+   (declare-const fp.to_ubv
+     (-> (! Int :var eb :implicit)
+	 	     (! Int :var sb :implicit)
+		     RoundingMode
+		     (FloatingPoint eb sb)
+		     (BitVec (+ eb sb)))
+	:builtin
+	"(FloatingPoint eb sb) to (Bitvec (+ eb sb)) conversion, mapping a floating-point number to
+	 the closest unsigned bit-vector, rounded according to the given rounding mode.
+	")
+
+   ; to signed machine integer, represented as a 2's complement bit vector
+   (declare-const fp.to_sbv
+     (-> (! Int :var eb :implicit)
+	 	     (! Int :var sb :implicit)
+		     RoundingMode
+		     (FloatingPoint eb sb)
+		     (BitVec (+ eb sb)))
+	:builtin
+	"(FloatingPoint eb sb) to (Bitvec m) conversion, mapping a floating-point number to
+	 the closest 2's complement bit-vector, rounded according to the given rounding mode.
+	")
+
+   ; to real 
+   (declare-const fp.to_real
+     (-> (! Int :var eb :implicit)
+	 	     (! Int :var sb :implicit)
+		     (FloatingPoint eb sb)
+		     Real)
+	:builtin
+	"(FloatingPoint eb sb) to Real conversion, mapping a floating-point number to a real number.
+	")
+	
+  ;----------------------
+  ; Arithmetic operators 
+  ;----------------------
+
+  ; negation
+  (declare-const fp.neg
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Negation.
+	")
+
+  ; addition
+  (declare-const fp.add
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Addition.
+	")
+
+  ; subtraction
+  (declare-const fp.sub
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Subtraction.
+	")
+
+  ; multiplication
+  (declare-const fp.mul
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Multiplication.
+	")
+
+  ; division
+  (declare-const fp.div
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Division.
+	")
+
+  ; fused multiplication and addition; (x * y) + z
+  (declare-const fp.fma
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Fused multiplication and addition.
+	")
+
+  ; square root
+  (declare-const fp.sqrt
+    (-> (! Int :var eb :implicit)
+	  	  (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+        (FloatingPoint eb sb))
+	:builtin
+	"Square root.
+	")
+
+  ; remainder: x - y * n, where n in Z is nearest to x/y
+  (declare-const fp.rem
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Remainder.
+	")
+
+  ; rounding to integral
+  (declare-const fp.roundingToIntegral
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Rounding to integral.
+	")
+
+  ; absolute value
+  (declare-const fp.abs
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Absolute value.
+	")
+
+  ;----------------------
+  ; Comparison operators
+  ;----------------------
+
+  ; maximum 
+  (declare-const fp.max
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatngPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb))
+	:builtin
+	"Maximum, defined the same as in SMT-LIB 2.
+	") 
+
+  ; minimum
+  (declare-const fp.min
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    (floatingPoint eb sb))
+	:builtin
+	"Minimum, defined the same as in SMT-LIB 2.
+	")
+
+  ; IEEE 754-2019 equality (as opposed to SMT-LIB =)
+  (declare-const fp.eq
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+	"Floating-point equality, defined the same as in SMT-LIB 2.
+	"
+	:chainable)
+
+  ; lt
+  (declare-const fp.lt
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+	"Less than, defined the same as in SMT-LIB 2.   
+	"
+	:chainable)
+
+  ; leq
+  (declare-const fp.leq
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+	"Less or equal, defined the same as in SMT-LIB 2.
+	"
+	:chainable)
+
+  ; gt
+  (declare-const fp.gt
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+	"Greater than, defined the same as in SMT-LIB 2.
+	"
+	:chainable)
+
+  (declare-const fp.geq
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+	"Greater or equal, defined the same as in SMT-LIB 2.
+	"
+	:chainable))
+
+  ;-------------------------- 
+  ; Classification operators
+  ;--------------------------
+
+  (declare-const fp.isNormal
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+	"[[fp.isNormal]](x) = true iff x is a normal number.
+	")
+
+  (declare-type fp.isSubnormal
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+	"[[fp.isSubnormal]](x) = true iff x is a subnormal number.
+	")
+  
+  (declare-const fp.isZero
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    Bool)
+  :builtin
+  "[[fp.isZero]](x) = true iff (x = +zero or x = -zero).
+  ")
+
+  (declare-const fp.isInfinite
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    Bool)
+  :builtin
+  "[[fp.isInfinite]](x) = true iff (x = +oo or x = -oo).
+  ")
+  
+  (declare-const fp.isNaN
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+	      Bool)
+	:builtin
+  "[[fp.isNaN]](x) = true iff x is NaN.
+  ")
+
+  (declare-const fp.isPositive
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+  "[[fp.isPositive]](x) = true iff x is not NaN and (x >= +zero).
+  ")
+
+  (declare-const fp.isNegative
+    (-> (! Int :var eb :implicit)
+		    (! Int :var sb :implicit)
+		    (FloatingPoint eb sb)
+		    Bool)
+	:builtin
+  "[[fp.isNegative]](x) = true iff x is not NaN and (-zero >= x).
+  ")
+  
+))
