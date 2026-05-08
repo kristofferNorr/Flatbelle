@@ -9,6 +9,7 @@ theory Benchmarks
   imports IEEE_Floating_Point.IEEE_Single_NaN_SMTLIB
 begin
 
+
 ML \<open>val _ = Theory.setup (Method.setup \<^binding>\<open>cheat\<close> (Scan.succeed (K (Method.cheating true))) "cheat")\<close>
 
 

@@ -4,7 +4,7 @@ set -u
 ISABELLE=isabelle
 MASH_STATE="$(isabelle getenv -b ISABELLE_HOME_USER)/mash_state"
 
-for a in Benchmarks.int.* Benchmarks.un.*
+for a in Benchmarks.int.*
 do
     echo $a
     cp $a Benchmarks.thy
